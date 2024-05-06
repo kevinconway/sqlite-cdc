@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2024 Kevin Conway <kevin@conway0.com>
+// SPDX-License-Identifier: Apache-2.0
+
 package handlers
 
 import (
