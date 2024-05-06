@@ -43,6 +43,7 @@ type flags struct {
 	destination   string
 	batchSize     int
 	disableSubsec bool
+	blobs         bool
 }
 
 func main() {
@@ -63,6 +64,7 @@ func main() {
 	fs.StringVar(&f.destination, "output", "-", "Write destination for log entries. Valid options are - for simplified stdout, json for full JSON stdout, or an HTTP URL that will receive POST requests containing batches of log entries. See <pkg.go.dev/github.com/kevinconway/sqlite-cdc/handlers#HTTP> for more.")
 	fs.IntVar(&f.batchSize, "batch-size", 256, "The max number of log entries to collect in each batch")
 	fs.BoolVar(&f.disableSubsec, "disable-subsec", false, "Disable subsecond time resolution to support old clients")
+	fs.BoolVar(&f.blobs, "blobs", false, "Enable support for blobs")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		log.Fatalln(err)
 	}
@@ -91,6 +93,7 @@ func main() {
 		cdc.WithMaxBatchSize(f.batchSize),
 		cdc.WithLogTableName(f.logTableName),
 		cdc.WithoutSubsecondTime(f.disableSubsec),
+		cdc.WithBlobSupport(f.blobs),
 	)
 	if err != nil {
 		log.Fatalln(err)
