@@ -4,16 +4,17 @@
 package cdc
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
 
 type Change struct {
-	Table     string
-	Timestamp time.Time
-	Operation Operation
-	Before    map[string]interface{}
-	After     map[string]interface{}
+	Table     string          `json:"table"`
+	Timestamp time.Time       `json:"timestamp"`
+	Operation Operation       `json:"operation"`
+	Before    json.RawMessage `json:"before"`
+	After     json.RawMessage `json:"after"`
 }
 
 type Operation string

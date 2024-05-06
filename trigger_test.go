@@ -6,6 +6,7 @@ package cdc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -294,7 +295,9 @@ func TestWideTables(t *testing.T) {
 	require.Len(t, results, 1)
 	require.Len(t, results[0], 1)
 	ch := results[0][0]
-	require.Len(t, ch.After, columnCount)
+	afterMap := make(map[string]any)
+	require.NoError(t, json.Unmarshal(ch.After, &afterMap))
+	require.Len(t, afterMap, columnCount)
 }
 
 func BenchmarkTableSizes(b *testing.B) {

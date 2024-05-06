@@ -3,7 +3,6 @@ package cdc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -177,29 +176,22 @@ func (c *triggers) drainChanges(ctx context.Context) error {
 			if err := rows.Scan(maxID, timestamp, table, operation, before, after); err != nil {
 				return fmt.Errorf("%w: failed to read change record from the log", err)
 			}
-			var beforeJSON map[string]any
-			if before.Valid {
-				if err := json.Unmarshal([]byte(before.String), &beforeJSON); err != nil {
-					return fmt.Errorf("%w: failed to unmarshal before json for %s", err, *table)
-				}
-			}
-			var afterJSON map[string]any
-			if after.Valid {
-				if err := json.Unmarshal([]byte(after.String), &afterJSON); err != nil {
-					return fmt.Errorf("%w: failed to unmarshal after json for %s", err, *table)
-				}
-			}
 			ts, err := time.Parse("2006-01-02 15:04:05.999999999", *timestamp)
 			if err != nil {
 				return fmt.Errorf("%w: failed to parse timestamp %s from the log", err, *timestamp)
 			}
-			changes = append(changes, Change{
+			ch := Change{
 				Timestamp: ts,
 				Table:     *table,
 				Operation: strToOperation(*operation),
-				Before:    beforeJSON,
-				After:     afterJSON,
-			})
+			}
+			if before.Valid {
+				ch.Before = []byte(before.String)
+			}
+			if after.Valid {
+				ch.After = []byte(after.String)
+			}
+			changes = append(changes, ch)
 		}
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("%w: failed to read changes from the log", err)
@@ -262,15 +254,11 @@ func (c *triggers) bootstrapTable(ctx context.Context, table string) error {
 			return fmt.Errorf("%w: failed to read bootstrap row for %s", err, table)
 		}
 		body := selections[len(selections)-1].(*string)
-		bodyJSON := make(map[string]any)
-		if err := json.Unmarshal([]byte(*body), &bodyJSON); err != nil {
-			return fmt.Errorf("%w: failed to unmarshal json for %s", err, table)
-		}
 		chs = append(chs, Change{
 			Table:     table,
 			Timestamp: time.Now(),
 			Operation: Insert,
-			After:     bodyJSON,
+			After:     []byte(*body),
 		})
 	}
 	if rows.Err() != nil {
@@ -302,15 +290,11 @@ func (c *triggers) bootstrapTable(ctx context.Context, table string) error {
 				return fmt.Errorf("%w: failed to read bootstrap row for %s", err, table)
 			}
 			body := selections[len(selections)-1].(*string)
-			bodyJSON := make(map[string]any)
-			if err := json.Unmarshal([]byte(*body), &bodyJSON); err != nil {
-				return fmt.Errorf("%w: failed to unmarshal json for %s", err, table)
-			}
 			chs = append(chs, Change{
 				Table:     table,
 				Timestamp: time.Now(),
 				Operation: Insert,
-				After:     bodyJSON,
+				After:     []byte(*body),
 			})
 			copy(keys, selections[:len(selections)-1])
 		}

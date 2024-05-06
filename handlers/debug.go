@@ -15,7 +15,7 @@ type Debug struct {
 
 func (d *Debug) HandleChanges(ctx context.Context, changes cdc.Changes) error {
 	for _, change := range changes {
-		b, err := json.Marshal(jsonChange(change))
+		b, err := json.Marshal(change)
 		if err != nil {
 			return fmt.Errorf("%w: failed to marshal changes to JSON", err)
 		}
