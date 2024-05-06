@@ -180,6 +180,9 @@ This project cannot handle BLOB type data in a non-BLOB type column. I suggest
 using [STRICT tables](https://www.sqlite.org/stricttables.html) to avoid this
 issue.
 
+Larger blob values take longer to convert to hex and can result in poorer
+performance.
+
 ### Very Wide Tables
 
 The engine uses SQLite functions to produce JSON representations of a record.
@@ -237,7 +240,7 @@ same as what this project does.
 However, the sessions extension has three notable behaviors that make it the
 wrong choice for general purpose CDC. The first is that session change records
 are only materialized when reading the log and then only one is produced per row
-that was modified. As a result, sessions is a poor way to receive real-time
+that was modified. As a result, sessions are a poor way to receive real-time
 change notifications. The second behavior is that the session log can only be
 fetched as a whole but never resets. As a result, the session log grows
 unbounded and there is no mechanism to filter out already handled changes. The

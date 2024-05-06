@@ -407,6 +407,40 @@ func BenchmarkBootstrapSizes(b *testing.B) {
 	}
 }
 
+func BenchmarkBlobSizes(b *testing.B) {
+	blobSizes := []int{16, 64, 256, 1024, 4096, 16384, 32768, 65536, 131072, 262144, 524288, 1048576}
+	for _, blobSize := range blobSizes {
+		b.Run(fmt.Sprintf("blob=%d", blobSize), func(b *testing.B) {
+			db := testDB(b)
+			defer db.Close()
+
+			_, err := db.Exec(`CREATE TABLE test (col BLOB)`)
+			require.NoError(b, err)
+
+			blobBody := make([]byte, blobSize)
+			for x := 0; x < blobSize; x = x + 1 {
+				blobBody[x] = byte(x % 256)
+			}
+			_, err = db.Exec(`INSERT INTO test VALUES (?)`, blobBody)
+			require.NoError(b, err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			h := &handlerNull{}
+			batchSize := defaultMaxBatchSize
+			c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
+			require.NoError(b, err)
+			defer c.Close(ctx)
+			trig := c.(*triggers)
+
+			b.ResetTimer()
+			for n := 0; n < b.N; n = n + 1 {
+				require.NoError(b, trig.bootstrap(ctx))
+			}
+		})
+	}
+}
+
 func generateRecords(t tOrB, db *sql.DB, n int, offset int) {
 	t.Helper()
 
