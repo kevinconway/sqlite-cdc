@@ -84,6 +84,8 @@ what's available:
 Usage of sqlite-cdc:
   --batch-size int
         The max number of log entries to collect in each batch (default 256)
+  --blobs
+        Enable support for blobs.
   --bootstrap
         Read all existing records as if they are inserts and then exit. If this flag is set in addition to the cdc flag the cdc mode will begin after the bootstrap is complete
   --cdc
@@ -125,7 +127,7 @@ If you absolutely must use the example as-is then the HTTP POST output enables
 you to redirect batches of CDC events to a specified URL. That receiver can then
 implement any logic you need. Note that the current version of the project does
 not include any form of built-in retries so your POST endpoint must implement
-those internally. See <pkg.go.dev/github.com/kevinconway/sqlite-cdc/handlers#HTTP>
+those internally. See <https://pkg.go.dev/github.com/kevinconway/sqlite-cdc/handlers#HTTP>
 for details on the API contract.
 
 ## Extending The Engine
@@ -144,13 +146,14 @@ type ChangesHandler interface {
 	HandleChanges(ctx context.Context, changes Changes) error
 }
 ```
-Each batch of changes given to your event handler will be in change order. The
-engine makes only one call to the handler at a time so that batches are also
-strictly processed in change order. If the handler returns an error then the
-engine considers this a critical fault and shuts down. If the handler returns
-success then the entire batch is considered successful and the relevant changes
-are removed from the log. Your handler is responsible for durability or
-reliability behaviors such as retries with backoff.
+Each call to `HandleChanges` receives a batch of change records. Each batch of
+changes given to your event handler will be in change order. The engine makes
+only one call to the handler at a time so that batches are also strictly
+processed in change order. If the handler returns an error then the engine
+considers this a critical fault and shuts down. If the handler returns success
+then the entire batch is considered successful and the relevant changes are
+removed from the log. Your handler is responsible for durability or reliability
+behaviors such as retries with backoff.
 
 ### API Documentation
 
@@ -160,9 +163,10 @@ reliability behaviors such as retries with backoff.
 
 ### BLOB Support
 
-By default, the engine ignores all fields with a BLOB type. BLOB support can be
-enabled by using the `WithBlobSupport(true)` option when constructing the
-engine. However, BLOB support is limited even when enabled.
+By default, the engine ignores all columns with a BLOB type. BLOB support can be
+enabled by using the `WithBlobSupport(true)` option when constructing the engine
+or the `--blobs` flag when using the example executable. However, BLOB support
+is limited even when enabled.
 
 When enabled, all values in a BLOB typed column are converted to an upper-case,
 hexadecimal representation of the BLOB's value using the SQLite
@@ -178,10 +182,10 @@ or BLOB.
 
 This project cannot handle BLOB type data in a non-BLOB type column. I suggest
 using [STRICT tables](https://www.sqlite.org/stricttables.html) to avoid this
-issue.
+situation.
 
-Larger blob values take longer to convert to hex and can result in poorer
-performance.
+Note also that larger blob values take longer to convert to hex and can result
+in poorer performance.
 
 ### Very Wide Tables
 
@@ -215,8 +219,8 @@ If any of your clients are older than 3.42.0 then you must use the
 `--disable-subsec` flag in the example executable.
 
 It's important to note that the version is associated with the client and not
-the database file. It is possible to have both old and new clients operating
-on the same database file.
+the database file. It is possible to have both old and new clients operating on
+the same database file. The lowest versioned client determines the limitations.
 
 ### Clients With Version Less Than 3.38.0
 
@@ -228,8 +232,8 @@ is enabled by default on 3.38.0 and newer clients.
 SQLite can be built with an extension called
 [session](https://sqlite.org/sessionintro.html) that provides an API for
 recording database changes and formatting them into change sets. The resulting
-change sets contain very similar information to the current records in the
-change log.
+change sets contain very similar information to the current design of the change
+log that this project uses.
 
 On the surface, the sessions extension appears to be a great fit for CDC.
 Starting a session begins a capture of all changes to a select set of tables.
@@ -239,21 +243,21 @@ same as what this project does.
 
 However, the sessions extension has three notable behaviors that make it the
 wrong choice for general purpose CDC. The first is that session change records
-are only materialized when reading the log and then only one is produced per row
-that was modified. As a result, sessions are a poor way to receive real-time
-change notifications. The second behavior is that the session log can only be
-fetched as a whole but never resets. As a result, the session log grows
-unbounded and there is no mechanism to filter out already handled changes. The
-third behavior is that a session is not necessarily persisted beyond the
-lifetime of the database connection it's associated with. As a result, there is
-no way to restore CDC from the last known position if the system exited for any
-reason.
+are only materialized when reading the log and only one change is generated per
+row that was modified. As a result, sessions are a poor way to receive real-time
+change notifications and are only capable of producing the final state of a
+record rather than a series of interim changes. The second behavior is that the
+session log can only be fetched as a whole but never resets. As a result, the
+session log grows unbounded and there is no mechanism to filter out already
+handled changes. The third behavior is that a session is not necessarily
+persisted beyond the lifetime of the database connection it's associated with.
+As a result, there is no way to restore CDC from the last known position if the
+system exited for any reason.
 
 The sessions extension appears to be designed to operate in a specific kind of
 environment where SQLite is being used as a data structure rather than a typical
-SQL database. As such, sessions work best when more tightly integrated into
-application logic and aren't well suited for this kind of "bolt-on" or sidecar
-model.
+SQL database. Sessions work best when more tightly integrated into application
+logic and aren't well suited for this project's "bolt-on" or sidecar model.
 
 ## Compatibility With Other Replication Tools
 
@@ -264,19 +268,51 @@ I have not yet tested with any of the SQLite replication tools I know about:
 - <https://github.com/maxpert/marmot>
 - <https://github.com/rqlite/rqlite>
 
-I expect that `rqlite` is incompatible because it requires writes through an
-HTTP API. I also expect that `litefs` is incompatible because it operates
-through FUSE which prevents sqlite-cdc from detecting file changes.
+I expect that `rqlite` is incompatible because it requires all database writes
+to happen through an HTTP API and this project expects to write through a SQLite
+client. I also expect that `litefs` is incompatible because it operates through
+FUSE which prevents sqlite-cdc from detecting file changes. Though, it's
+possible that using time based polling of the log rather than file change
+notifications from the filesystem would provide compatibility with `litefs`.
 
 The `litestream` project _should_ be compatible because it uses a standard
 file system and supports arbitrary SQLite clients. I also suspect `marmot` is
 compatible but redundant because it implements a very similar trigger based
 system to this project.
 
+## Developing
+
+This project only requires a Go installation to work on and is compatible with
+standard Go tooling. For example, you can run `go test ./...` to run the tests.
+
+I have also included a `Makefile` with the following rules:
+
+- test
+      - Run all test suites
+- test/lint
+      - Run static analysis
+- test/unit
+      - Run unit tests
+- test/coverage
+      - Generate a coverage report
+- tools
+      - Download any Go tooling used for project automation
+- tools/update
+      - Update all tools to the latest version
+- fmt
+      - Run the project's auto formatter
+- clean
+      - Remove all build and test artifacts
+- clean/test
+      - Remove test artifacts and coverage reports
+- clean/tools
+      - Remove any downloaded tools
+
 ## License
 
-This project is licensed under the Apache 2.0 terms. See `LICENSE` for full
-details.
+The code for this project is licensed under the Apache 2.0 terms.
+
+See `LICENSE` for full details.
 
 ## Prior Art
 

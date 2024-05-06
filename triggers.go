@@ -164,7 +164,7 @@ func (c *triggers) cdc(ctx context.Context) error {
 func (c *triggers) drainChanges(ctx context.Context) error {
 	changes := make(Changes, 0, c.maxBatchSize)
 	for {
-		rows, err := c.db.QueryContext(ctx, `SELECT id, timestamp, tablename, operation, before, after FROM `+c.logTableName+` ORDER BY id ASC LIMIT ?`, c.maxBatchSize)
+		rows, err := c.db.QueryContext(ctx, `SELECT id, timestamp, tablename, operation, before, after FROM `+c.logTableName+` ORDER BY id ASC LIMIT ?`, c.maxBatchSize) //nolint:gosec
 		if err != nil {
 			return fmt.Errorf("%w: failed to select changes from the log", err)
 		}
@@ -212,7 +212,7 @@ func (c *triggers) drainChanges(ctx context.Context) error {
 		}
 		defer tx.Rollback()
 
-		_, err = tx.ExecContext(ctx, `DELETE FROM `+c.logTableName+` WHERE id <= ?`, *maxID)
+		_, err = tx.ExecContext(ctx, `DELETE FROM `+c.logTableName+` WHERE id <= ?`, *maxID) //nolint:gosec
 		if err != nil {
 			return fmt.Errorf("%w: failed to delete handled logs", err)
 		}
@@ -279,13 +279,16 @@ func (c *triggers) bootstrapTable(ctx context.Context, table string) error {
 	}
 	keys := make([]any, len(selections)-1)
 	copy(keys, selections[:len(selections)-1])
+	params := make([]any, len(keys)+1)
 	for {
 		q = sqlSelectNext(t, c.blobs)
-		params := append(keys, c.maxBatchSize)
+		copy(params, keys)
+		params[len(params)-1] = c.maxBatchSize
 		rows, err = c.db.QueryContext(ctx, q, params...)
 		if err != nil {
 			return fmt.Errorf("%w: failed to select bootstrap rows for %s", err, table)
 		}
+		defer rows.Close()
 		chs = chs[:0]
 		for rows.Next() {
 			selections = append(sqlKeyValuesForTable(t), new(string))

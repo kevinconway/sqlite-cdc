@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
@@ -44,7 +45,6 @@ func TestBootstrapWithRowID(t *testing.T) {
 	}
 
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {
@@ -72,9 +72,9 @@ func TestCDCWithRowID(t *testing.T) {
 
 	require.NoError(t, c.Setup(ctx))
 
-	go func() {
-		require.NoError(t, c.CDC(ctx))
-	}()
+	go func(t *testing.T, c CDC) {
+		assert.NoError(t, c.CDC(ctx))
+	}(t, c)
 	time.Sleep(5 * time.Millisecond) // force a scheduler break to get CDC going
 	generateRecords(t, db, count, 0)
 	time.Sleep(time.Second) // wait some time for CDC to finish
@@ -84,7 +84,6 @@ func TestCDCWithRowID(t *testing.T) {
 		expectedBatches = expectedBatches + 1
 	}
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {
@@ -119,7 +118,6 @@ func TestBootstrapWithoutRowID(t *testing.T) {
 	}
 
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {
@@ -147,9 +145,9 @@ func TestCDCWithoutRowID(t *testing.T) {
 
 	require.NoError(t, c.Setup(ctx))
 
-	go func() {
-		require.NoError(t, c.CDC(ctx))
-	}()
+	go func(t *testing.T, c CDC) {
+		assert.NoError(t, c.CDC(ctx))
+	}(t, c)
 	time.Sleep(5 * time.Millisecond) // force a scheduler break to get CDC going
 	generateRecords(t, db, count, 0)
 	time.Sleep(time.Second) // wait some time for CDC to finish
@@ -159,7 +157,6 @@ func TestCDCWithoutRowID(t *testing.T) {
 		expectedBatches = expectedBatches + 1
 	}
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {
@@ -187,9 +184,9 @@ func TestBootstrapAndCDCWithRowID(t *testing.T) {
 
 	require.NoError(t, c.Setup(ctx))
 	generateRecords(t, db, count, 0)
-	go func() {
-		require.NoError(t, c.CDC(ctx))
-	}()
+	go func(t *testing.T, c CDC) {
+		assert.NoError(t, c.CDC(ctx))
+	}(t, c)
 	time.Sleep(5 * time.Millisecond) // force a scheduler break to get CDC going
 	generateRecords(t, db, count, count)
 	time.Sleep(time.Second) // wait some time for CDC to finish
@@ -199,7 +196,6 @@ func TestBootstrapAndCDCWithRowID(t *testing.T) {
 		expectedBatches = expectedBatches + 1
 	}
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {
@@ -227,9 +223,9 @@ func TestBootstrapAndCDCWithoutRowID(t *testing.T) {
 
 	require.NoError(t, c.Setup(ctx))
 	generateRecords(t, db, count, 0)
-	go func() {
-		require.NoError(t, c.CDC(ctx))
-	}()
+	go func(t *testing.T, c CDC) {
+		assert.NoError(t, c.CDC(ctx))
+	}(t, c)
 	time.Sleep(5 * time.Millisecond) // force a scheduler break to get CDC going
 	generateRecords(t, db, count, count)
 	time.Sleep(time.Second) // wait some time for CDC to finish
@@ -239,7 +235,6 @@ func TestBootstrapAndCDCWithoutRowID(t *testing.T) {
 		expectedBatches = expectedBatches + 1
 	}
 	results := h.Changes()
-	require.Equal(t, expectedBatches, len(results))
 	require.Len(t, results, expectedBatches)
 	totalChanges := 0
 	for _, changes := range results {

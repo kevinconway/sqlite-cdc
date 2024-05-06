@@ -61,8 +61,14 @@ func newDBMeta(db *sql.DB) (*dbMeta, error) {
 				PK:   pk,
 			})
 		}
+		if cRows.Err() != nil {
+			return nil, fmt.Errorf("%w: failed to iterate table column metadata for %s", err, table.Name)
+		}
 		_ = cRows.Close()
 		tables[table.Name] = table
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: failed to iterate table metadata entries", err)
 	}
 
 	return &dbMeta{

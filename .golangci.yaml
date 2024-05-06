@@ -1,0 +1,63 @@
+run:
+  timeout: 5m
+  issues-exit-code: 2
+  tests: true
+  build-tags: []
+  skip-dirs:
+    - \.bin$
+    - \.coverage$
+  skip-dirs-use-default: true
+  skip-files: []
+  modules-download-mode: readonly
+  allow-parallel-runners: false
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  path-prefix: ""
+  sort-results: false
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - "(*database/sql.Tx).Rollback"
+linters:
+  enable-all: false
+  disable-all: false
+  enable:
+    - gochecknoglobals
+    - gochecknoinits
+  presets:
+    - bugs
+    - test
+  disable:
+    - exhaustruct
+    - testpackage
+  fast: false
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+  exclude-use-default: true
+  exclude-case-sensitive: false
+  include: []
+  max-issues-per-linter: 50
+  max-same-issues: 3
+  new: false
+  new-from-patch: ""
+  fix: false
+
+severity:
+  default-severity: error
+  case-sensitive: true
+  rules:
+    - linters:
+        - dupl
+      severity: info
