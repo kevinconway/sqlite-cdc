@@ -464,7 +464,10 @@ func sqlDeleteLogTable(table string) string {
 	return `DROP TABLE IF EXISTS ` + table
 }
 
+const colChunkSize = 63
+
 func sqlJsonObject(prefix string, columns []columnMeta, blobs bool) string {
+	objects := make([]string, 0, (len(columns)/colChunkSize)+1)
 	var b strings.Builder
 	b.WriteString("json_object(")
 	for offset, column := range columns {
@@ -474,6 +477,13 @@ func sqlJsonObject(prefix string, columns []columnMeta, blobs bool) string {
 				b.WriteString(", hex(")
 				b.WriteString(prefix + column.Name)
 				b.WriteString(")")
+				if (offset+1)%colChunkSize == 0 && offset < len(columns)-1 {
+					b.WriteString(")")
+					objects = append(objects, b.String())
+					b.Reset()
+					b.WriteString("json_object(")
+					continue
+				}
 				if offset < len(columns)-1 {
 					b.WriteString(", ")
 				}
@@ -483,11 +493,37 @@ func sqlJsonObject(prefix string, columns []columnMeta, blobs bool) string {
 		b.WriteString(fmt.Sprintf("'%s'", column.Name))
 		b.WriteString(", ")
 		b.WriteString(prefix + column.Name)
+
+		if (offset+1)%colChunkSize == 0 && offset < len(columns)-1 {
+			b.WriteString(")")
+			objects = append(objects, b.String())
+			b.Reset()
+			b.WriteString("json_object(")
+			continue
+		}
 		if offset < len(columns)-1 {
 			b.WriteString(", ")
 		}
 	}
 	b.WriteString(")")
+	objects = append(objects, b.String())
+	b.Reset()
+
+	if len(objects) == 1 {
+		return objects[0]
+	}
+	for offset, object := range objects {
+		if offset+1 == len(objects) {
+			b.WriteString(object)
+			for x := 1; x < len(objects); x = x + 1 {
+				b.WriteString(")")
+			}
+			continue
+		}
+		b.WriteString("json_patch(")
+		b.WriteString(object)
+		b.WriteString(", ")
+	}
 	return b.String()
 }
 

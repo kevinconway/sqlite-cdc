@@ -6,7 +6,9 @@ package cdc
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -245,7 +247,164 @@ func TestBootstrapAndCDCWithoutRowID(t *testing.T) {
 	require.Equal(t, count*2, totalChanges)
 }
 
-func generateRecords(t *testing.T, db *sql.DB, n int, offset int) {
+func TestWideTables(t *testing.T) {
+	t.Parallel()
+	db := testDB(t)
+	defer db.Close()
+
+	columnCount := 1000 // This is the default max stack depth in SQLite
+	var b strings.Builder
+	b.WriteString("CREATE TABLE test (")
+	for x := 0; x < columnCount; x = x + 1 {
+		b.WriteString(fmt.Sprintf("col%d INT", x))
+		if x < columnCount-1 {
+			b.WriteString(", ")
+		}
+	}
+	b.WriteString(")")
+	_, err := db.Exec(b.String())
+	require.NoError(t, err)
+
+	b.Reset()
+	params := make([]any, columnCount)
+	b.WriteString("INSERT INTO test VALUES (")
+	for x := 0; x < columnCount; x = x + 1 {
+		params[x] = x
+		b.WriteString("?")
+		if x < columnCount-1 {
+			b.WriteString(", ")
+		}
+	}
+	b.WriteString(")")
+	_, err = db.Exec(b.String(), params...)
+	require.NoError(t, err)
+
+	h := newHandler()
+	batchSize := defaultMaxBatchSize
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	require.NoError(t, c.Bootstrap(ctx))
+	require.NoError(t, c.Close(ctx))
+
+	results := h.Changes()
+	require.Len(t, results, 1)
+	require.Len(t, results[0], 1)
+	ch := results[0][0]
+	require.Len(t, ch.After, columnCount)
+}
+
+func BenchmarkTableSizes(b *testing.B) {
+	columnCounts := []int{1, 5, 10, 20, 30, 40, 50, 100, 200, 400, 800, 1000}
+	for _, columnCount := range columnCounts {
+		b.Run(fmt.Sprintf("columns=%d", columnCount), func(b *testing.B) {
+			db := testDB(b)
+			defer db.Close()
+
+			var builder strings.Builder
+			builder.WriteString("CREATE TABLE test (")
+			for x := 0; x < columnCount; x = x + 1 {
+				builder.WriteString(fmt.Sprintf("col%d INT", x))
+				if x < columnCount-1 {
+					builder.WriteString(", ")
+				}
+			}
+			builder.WriteString(")")
+			_, err := db.Exec(builder.String())
+			require.NoError(b, err)
+
+			builder.Reset()
+			params := make([]any, columnCount)
+			builder.WriteString("INSERT INTO test VALUES (")
+			for x := 0; x < columnCount; x = x + 1 {
+				params[x] = x
+				builder.WriteString("?")
+				if x < columnCount-1 {
+					builder.WriteString(", ")
+				}
+			}
+			builder.WriteString(")")
+			_, err = db.Exec(builder.String(), params...)
+			require.NoError(b, err)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			h := &handlerNull{}
+			batchSize := defaultMaxBatchSize
+			c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
+			require.NoError(b, err)
+			defer c.Close(ctx)
+			trig := c.(*triggers)
+
+			b.ResetTimer()
+			for n := 0; n < b.N; n = n + 1 {
+				require.NoError(b, trig.bootstrap(ctx))
+			}
+		})
+	}
+}
+
+func BenchmarkBootstrapSizes(b *testing.B) {
+	columnCounts := []int{1, 5, 10, 20}
+	rowCounts := []int{1, 10, 100, 1000, 10000}
+	batchSizes := []int{1, 10, 100, 1000, 10000}
+	for _, columnCount := range columnCounts {
+		for _, rowCount := range rowCounts {
+			for _, batchSize := range batchSizes {
+				b.Run(fmt.Sprintf("columns=%d, rows=%d, batch=%d", columnCount, rowCount, batchSize), func(b *testing.B) {
+					db := testDB(b)
+					defer db.Close()
+
+					var builder strings.Builder
+					builder.WriteString("CREATE TABLE test (")
+					for x := 0; x < columnCount; x = x + 1 {
+						builder.WriteString(fmt.Sprintf("col%d INT", x))
+						if x < columnCount-1 {
+							builder.WriteString(", ")
+						}
+					}
+					builder.WriteString(")")
+					_, err := db.Exec(builder.String())
+					require.NoError(b, err)
+
+					builder.Reset()
+					params := make([]any, columnCount)
+					builder.WriteString("INSERT INTO test VALUES (")
+					for x := 0; x < columnCount; x = x + 1 {
+						params[x] = x
+						builder.WriteString("?")
+						if x < columnCount-1 {
+							builder.WriteString(", ")
+						}
+					}
+					builder.WriteString(")")
+					for x := 0; x < rowCount; x = x + 1 {
+						_, err = db.Exec(builder.String(), params...)
+						require.NoError(b, err)
+					}
+
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					h := &handlerNull{}
+					c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
+					require.NoError(b, err)
+					defer c.Close(ctx)
+					trig := c.(*triggers)
+
+					b.ResetTimer()
+					for n := 0; n < b.N; n = n + 1 {
+						require.NoError(b, trig.bootstrap(ctx))
+					}
+				})
+			}
+		}
+	}
+}
+
+func generateRecords(t tOrB, db *sql.DB, n int, offset int) {
 	t.Helper()
 
 	tx, err := db.Begin()
@@ -276,13 +435,13 @@ func generateRecords(t *testing.T, db *sql.DB, n int, offset int) {
 	require.NoError(t, tx.Commit())
 }
 
-func createTable(t *testing.T, db *sql.DB) {
+func createTable(t tOrB, db *sql.DB) {
 	t.Helper()
 	_, err := db.Exec(sqlCreateTestTable)
 	require.NoError(t, err)
 }
 
-func createTableWithoutRowID(t *testing.T, db *sql.DB) {
+func createTableWithoutRowID(t tOrB, db *sql.DB) {
 	t.Helper()
 	_, err := db.Exec(sqlCreateTestTable + " WITHOUT ROWID")
 	require.NoError(t, err)
@@ -325,7 +484,14 @@ const sqlCreateTestTable = `CREATE TABLE ` + testTableName + ` (
 	PRIMARY KEY (a,b,c)
 )`
 
-func testDB(t *testing.T) *sql.DB {
+type tOrB interface {
+	Errorf(format string, args ...interface{})
+	FailNow()
+	Helper()
+	TempDir() string
+}
+
+func testDB(t tOrB) *sql.DB {
 	t.Helper()
 	dir := t.TempDir()
 

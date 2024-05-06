@@ -180,15 +180,20 @@ This project cannot handle BLOB type data in a non-BLOB type column. I suggest
 using [STRICT tables](https://www.sqlite.org/stricttables.html) to avoid this
 issue.
 
-### Max 63 Columns Per Table
+### Very Wide Tables
 
-The engine cannot be used on tables with more than 63 columns. I plan to support
-larger tables in the future.
+The engine uses SQLite functions to produce JSON representations of a record.
+SQLite has a hard limit of 127 arguments per function call. This equates to a
+limit of 63 columns convertible per function call.
 
-The underlying issue is that the triggers used to populate the change log call a
-function that takes the name and value of each column as an argument. SQLite has
-a hard limit of 127 arguments per function call. For now that means a 63 column
-limit because that results in 126 arguments.
+All rows from tables with less than 64 columns are converted to JSON in a single
+function call. Tables with 64 or more columns engage in an alternative
+conversion process. The wide table conversion process groups columns into sets
+of 63, generates a JSON object from each set, and performs a series of JSON
+patches to merge each column set with the previously generated JSON object.
+
+Wide table conversion is limited to 1000 columns because this is the default
+stack depth limit for SQLite. Wider tables result in poorer performance.
 
 ### WAL Mode Required
 
@@ -209,6 +214,11 @@ If any of your clients are older than 3.42.0 then you must use the
 It's important to note that the version is associated with the client and not
 the database file. It is possible to have both old and new clients operating
 on the same database file.
+
+### Clients With Version Less Than 3.38.0
+
+Any clients older than 3.38.0 must be compiled with JSON support enabled. This
+is enabled by default on 3.38.0 and newer clients.
 
 ## Why Not Use The Session API?
 
