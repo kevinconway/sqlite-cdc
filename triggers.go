@@ -41,6 +41,13 @@ func WithoutSubsecondTime(v bool) Option {
 	}
 }
 
+func WithBlobSupport(v bool) Option {
+	return func(t *triggers) error {
+		t.blobs = v
+		return nil
+	}
+}
+
 // New returns a CDC implementation based on triggers.
 //
 // This implementation works with any SQLite driver and uses only SQL operations
@@ -77,6 +84,7 @@ func New(db *sql.DB, handler ChangesHandler, tables []string, options ...Option)
 		logTableName: defaultLogTableName,
 		maxBatchSize: defaultMaxBatchSize,
 		subsec:       true,
+		blobs:        false,
 	}
 	for _, opt := range options {
 		if err := opt(result); err != nil {
@@ -98,6 +106,7 @@ type triggers struct {
 	logTableName string
 	maxBatchSize int
 	subsec       bool
+	blobs        bool
 }
 
 func (c *triggers) CDC(ctx context.Context) error {
@@ -240,7 +249,7 @@ func (c *triggers) bootstrapTable(ctx context.Context, table string) error {
 	if !ok {
 		return fmt.Errorf("table %q not found in database", table)
 	}
-	q := sqlSelectFirst(t)
+	q := sqlSelectFirst(t, c.blobs)
 	rows, err := c.db.QueryContext(ctx, q, c.maxBatchSize)
 	if err != nil {
 		return fmt.Errorf("%w: failed to select first bootstrap rows for %s", err, table)
@@ -280,7 +289,7 @@ func (c *triggers) bootstrapTable(ctx context.Context, table string) error {
 	keys := make([]any, len(selections)-1)
 	copy(keys, selections[:len(selections)-1])
 	for {
-		q = sqlSelectNext(t)
+		q = sqlSelectNext(t, c.blobs)
 		params := append(keys, c.maxBatchSize)
 		rows, err = c.db.QueryContext(ctx, q, params...)
 		if err != nil {
@@ -348,13 +357,13 @@ func (c *triggers) Setup(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("table %q not found in database", table)
 		}
-		if _, err = tx.Exec(sqlCreateTableTriggerInsert(c.logTableName, t, c.subsec)); err != nil {
+		if _, err = tx.Exec(sqlCreateTableTriggerInsert(c.logTableName, t, c.subsec, c.blobs)); err != nil {
 			return fmt.Errorf("%w: failed to create table trigger for inserts on %s", err, table)
 		}
-		if _, err = tx.Exec(sqlCreateTableTriggerUpdate(c.logTableName, t, c.subsec)); err != nil {
+		if _, err = tx.Exec(sqlCreateTableTriggerUpdate(c.logTableName, t, c.subsec, c.blobs)); err != nil {
 			return fmt.Errorf("%w: failed to create table trigger for updates on %s", err, table)
 		}
-		if _, err = tx.Exec(sqlCreateTableTriggerDelete(c.logTableName, t, c.subsec)); err != nil {
+		if _, err = tx.Exec(sqlCreateTableTriggerDelete(c.logTableName, t, c.subsec, c.blobs)); err != nil {
 			return fmt.Errorf("%w: failed to create table trigger for deletes on %s", err, table)
 		}
 	}
@@ -418,22 +427,22 @@ func sqlCreateLogTable(name string) string {
 		after TEXT
 	)`
 }
-func sqlCreateTableTriggerInsert(logTable string, table tableMeta, subsec bool) string {
+func sqlCreateTableTriggerInsert(logTable string, table tableMeta, subsec bool, blobs bool) string {
 	return `CREATE TRIGGER IF NOT EXISTS ` + table.Name + `__cdc_insert AFTER INSERT ON ` + table.Name + ` BEGIN
 		INSERT INTO ` + logTable + ` (timestamp, tablename, operation, before, after) VALUES
-			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'INSERT', NULL, ` + sqlJsonObject("NEW.", table.Columns) + `);
+			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'INSERT', NULL, ` + sqlJsonObject("NEW.", table.Columns, blobs) + `);
 	END`
 }
-func sqlCreateTableTriggerUpdate(logTable string, table tableMeta, subsec bool) string {
+func sqlCreateTableTriggerUpdate(logTable string, table tableMeta, subsec bool, blobs bool) string {
 	return `CREATE TRIGGER IF NOT EXISTS ` + table.Name + `__cdc_update AFTER UPDATE ON ` + table.Name + ` BEGIN
 		INSERT INTO ` + logTable + ` (timestamp, tablename, operation, before, after) VALUES
-			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'UPDATE', ` + sqlJsonObject("OLD.", table.Columns) + `, ` + sqlJsonObject("NEW.", table.Columns) + `);
+			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'UPDATE', ` + sqlJsonObject("OLD.", table.Columns, blobs) + `, ` + sqlJsonObject("NEW.", table.Columns, blobs) + `);
 	END`
 }
-func sqlCreateTableTriggerDelete(logTable string, table tableMeta, subsec bool) string {
+func sqlCreateTableTriggerDelete(logTable string, table tableMeta, subsec bool, blobs bool) string {
 	return `CREATE TRIGGER IF NOT EXISTS ` + table.Name + `__cdc_delete AFTER DELETE ON ` + table.Name + ` BEGIN
 		INSERT INTO ` + logTable + ` (timestamp, tablename, operation, before, after) VALUES
-			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'DELETE', ` + sqlJsonObject("OLD.", table.Columns) + `, NULL);
+			(` + sqlDateTimeNow(subsec) + `, '` + table.Name + `', 'DELETE', ` + sqlJsonObject("OLD.", table.Columns, blobs) + `, NULL);
 	END`
 }
 func sqlDateTimeNow(subsec bool) string {
@@ -455,13 +464,20 @@ func sqlDeleteLogTable(table string) string {
 	return `DROP TABLE IF EXISTS ` + table
 }
 
-func sqlJsonObject(prefix string, columns []columnMeta) string {
+func sqlJsonObject(prefix string, columns []columnMeta, blobs bool) string {
 	var b strings.Builder
 	b.WriteString("json_object(")
 	for offset, column := range columns {
 		if strings.ToUpper(column.Type) == "BLOB" {
-			// TODO: Add some kind of support for blobs. Likely by using base64
-			// encoding if it is available.
+			if blobs {
+				b.WriteString(fmt.Sprintf("'%s'", column.Name))
+				b.WriteString(", hex(")
+				b.WriteString(prefix + column.Name)
+				b.WriteString(")")
+				if offset < len(columns)-1 {
+					b.WriteString(", ")
+				}
+			}
 			continue
 		}
 		b.WriteString(fmt.Sprintf("'%s'", column.Name))
@@ -475,10 +491,9 @@ func sqlJsonObject(prefix string, columns []columnMeta) string {
 	return b.String()
 }
 
-func sqlSelectFirst(table tableMeta) string {
+func sqlSelectFirst(table tableMeta, blobs bool) string {
 	if !table.WithoutRowID {
-		// panic(`SELECT rowid, ` + sqlJsonObject("", table.Columns) + ` AS body FROM ` + table.Name + `ORDER BY rowid LIMIT ?`)
-		return `SELECT rowid, ` + sqlJsonObject("", table.Columns) + ` AS body FROM ` + table.Name + ` ORDER BY rowid LIMIT ?`
+		return `SELECT rowid, ` + sqlJsonObject("", table.Columns, blobs) + ` AS body FROM ` + table.Name + ` ORDER BY rowid LIMIT ?`
 	}
 	var keyCount int
 	for _, column := range table.Columns {
@@ -492,12 +507,12 @@ func sqlSelectFirst(table tableMeta) string {
 			keyColumns[column.PK-1] = column.Name
 		}
 	}
-	return `SELECT ` + strings.Join(keyColumns, ", ") + `, ` + sqlJsonObject("", table.Columns) + ` AS body FROM ` + table.Name + ` ORDER BY ` + strings.Join(keyColumns, ", ") + ` LIMIT ?`
+	return `SELECT ` + strings.Join(keyColumns, ", ") + `, ` + sqlJsonObject("", table.Columns, blobs) + ` AS body FROM ` + table.Name + ` ORDER BY ` + strings.Join(keyColumns, ", ") + ` LIMIT ?`
 }
 
-func sqlSelectNext(table tableMeta) string {
+func sqlSelectNext(table tableMeta, blobs bool) string {
 	if !table.WithoutRowID {
-		return `SELECT rowid, ` + sqlJsonObject("", table.Columns) + ` AS body FROM ` + table.Name + ` WHERE rowid > ? ORDER BY rowid LIMIT ?`
+		return `SELECT rowid, ` + sqlJsonObject("", table.Columns, blobs) + ` AS body FROM ` + table.Name + ` WHERE rowid > ? ORDER BY rowid LIMIT ?`
 	}
 	var keyCount int
 	for _, column := range table.Columns {
@@ -512,7 +527,7 @@ func sqlSelectNext(table tableMeta) string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString(`SELECT ` + strings.Join(keyColumns, ", ") + `, ` + sqlJsonObject("", table.Columns) + ` AS body FROM ` + table.Name)
+	b.WriteString(`SELECT ` + strings.Join(keyColumns, ", ") + `, ` + sqlJsonObject("", table.Columns, blobs) + ` AS body FROM ` + table.Name)
 	b.WriteString(` WHERE `)
 	for offset, column := range keyColumns {
 		b.WriteString(column)

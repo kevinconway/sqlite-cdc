@@ -26,7 +26,7 @@ func TestBootstrapWithRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -63,7 +63,7 @@ func TestCDCWithRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 	defer c.Close(ctx)
 
@@ -101,7 +101,7 @@ func TestBootstrapWithoutRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,7 +138,7 @@ func TestCDCWithoutRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 	defer c.Close(ctx)
 
@@ -178,7 +178,7 @@ func TestBootstrapAndCDCWithRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 	defer c.Close(ctx)
 
@@ -218,7 +218,7 @@ func TestBootstrapAndCDCWithoutRowID(t *testing.T) {
 
 	h := newHandler()
 	batchSize := defaultMaxBatchSize
-	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize))
+	c, err := New(db, h, []string{testTableName}, WithMaxBatchSize(batchSize), WithBlobSupport(true))
 	require.NoError(t, err)
 	defer c.Close(ctx)
 

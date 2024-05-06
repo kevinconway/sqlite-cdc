@@ -158,23 +158,27 @@ reliability behaviors such as retries with backoff.
 
 ## Limitations
 
-### No BLOB Support
+### BLOB Support
 
-There is currently no support for BLOB columns or BLOB data. I expect to add
-some kind of BLOB column support in the future but there is no practical way to
-support BLOB data within non-BLOB columns in the current design.
+By default, the engine ignores all fields with a BLOB type. BLOB support can be
+enabled by using the `WithBlobSupport(true)` option when constructing the
+engine. However, BLOB support is limited even when enabled.
 
-In SQLite, there is a distinction between column type and data type. By default,
-column types are not enforced and SQLite is capable of storing any data type
-within any column. For example, a column may be defined with type INTEGER but
-that does not prevent a client from inserting values that are of type TEXT or
-BLOB.
+When enabled, all values in a BLOB typed column are converted to an upper-case,
+hexadecimal representation of the BLOB's value using the SQLite
+[hex](https://www.sqlite.org/lang_corefunc.html#hex) function. This is done to
+make the values representable in JSON because JSON has no native expression of
+raw bytes.
 
-The issue is that the triggers used to populate the change log table need to
-specially handle BLOB data and the column type is the only available indicator
-of what a value's type might be. As a result, any BLOB value in a non-BLOB
-column will result in failure. I suggest using
-[STRICT tables](https://www.sqlite.org/stricttables.html) to avoid this issue.
+Note, however, that SQLite distinguishes between column type and data type. By
+default, column types are not enforced and SQLite is capable of storing any data
+type within any column. For example, a column may be defined with type INTEGER
+but that does not prevent a client from inserting values that are of type TEXT
+or BLOB.
+
+This project cannot handle BLOB type data in a non-BLOB type column. I suggest
+using [STRICT tables](https://www.sqlite.org/stricttables.html) to avoid this
+issue.
 
 ### Max 63 Columns Per Table
 
