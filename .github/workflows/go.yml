@@ -1,0 +1,29 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        cache-dependency-path: |
+             go.sum
+             internal/tools/go.sum
+
+    - name: Tools
+      run: make tools
+    - name: Lint
+      run: make test/lint
+    - name: Unit Test
+      run: make test/unit
